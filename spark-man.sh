@@ -16,6 +16,7 @@ function install_req {
 	$SUDO_CMD apt-get install scala -y;
 	$SUDO_CMD apt-get install openssh-server openssh-client;
 	$SUDO_CMD apt-get install python-software-properties;
+	$SUDO_CMD apt-get install sshpass -y;
 }
 
 
@@ -32,6 +33,7 @@ function setup() {
 	SPARK_DOWNLOAD_LINK="http://d3kbcqa49mib13.cloudfront.net/spark-2.1.0-bin-hadoop2.7.tgz";
 	SPARK_DIR="/spark"
 	current_user=$(whoami);
+	pass="test123456"	
 	
 
 	#read nodes
@@ -60,22 +62,19 @@ function setup() {
 		let index=index+1 ;
 	done
 
-	
+	OPTIND=2;
 
-	 # set neo4j type and version
-    while getopts "t:n" o; do
-        case "$o" in
-            #t)  type=$OPTARG;
-            #    (( "$type" == "community" || "$type" == "enterprise")) && nodeType=$type;
-            #    ;;
-            #n)  nodeName=$OPTARG;
-		#		;;
-         #   *) usage;
-          #      ;;
+	 # set params
+    while getopts "p" o; do
+		case "$o" in
+            p)  read -s pass;
+                ;;
+            *) usage;
+                ;;
         esac
     done
-	
-	
+		
+
 	#checking if name is set
 	if ( [[ -z  $name  ]] ||  [[  -z  $nodeType  ]] ) then
 		usage;
@@ -92,8 +91,7 @@ function setup() {
 	fi		
 	
 	#creating user if not exist	
-	id -u spark &>/dev/null || sudo useradd -d /home/spark -m spark
-	
+	$SUDO_CMD id -u spark &>/dev/null || ( $SUDO_CMD useradd -m -d /home/spark -s /bin/bash spark; echo -e "$pass\n$pass\n" | passwd spark )
 	
 	#create directory
 	if  [ ! -e "$SPARK_DIR" ] ;  then
@@ -101,7 +99,8 @@ function setup() {
 	fi		
 	
 	#givving access to sparl user
-	$SUDO_CMD setfacl -m u:spark:rwx $SPARK_DIR	
+	$SUDO_CMD chown -R spark $SPARK_DIR
+	$SUDO_CMD chmod -R +rwx $SPARK_DIR
 	if ( [ ! "$current_user" = "root" ] ) then
 		$SUDO_CMD `"setfacl -m u:$current_user:rwx $SPARK_DIR"`
 	fi
@@ -109,6 +108,20 @@ function setup() {
 	
 	#creating a new ssh key if it doesn't exist	
 	$SUDO_CMD [ -e "/home/spark/.ssh/id_rsa.pub" ] || runuser -l spark -c 'ssh-keygen -t rsa -f "/home/spark/.ssh/id_rsa" -q -N ""'
+	
+	if ([ "$nodeType" = "master" ]) then
+		index=0;
+		for node in "${nodes[@]}"; do
+			IFS=' ' read -r -a parts <<< $node
+			nip=$(echo -e "${parts[0]}" | tr -d '[:space:]');
+			npass=$(echo -e "${parts[2]}" | tr -d '[:space:]');
+			if [ ! $index -eq 0 ]; then
+				cat /home/spark/.ssh/id_rsa.pub | sshpass -p "$npass" ssh spark@"$nip" 'cat >> .ssh/authorized_keys'
+			fi
+			let index=index+1 ;
+		done
+ 	fi
+	
 	
 	currentdir=$(pwd);
 	#entering spark directory
@@ -147,16 +160,19 @@ function setup() {
 	#update spark-env.sh
 	cp spark/conf/spark-env.sh.template spark/conf/spark-env.sh
 	if  ! $SUDO_CMD grep -q "$export JAVA_HOME*"  /spark/spark/conf/spark-env.sh ; then                
-		echo "export JAVA_HOME=/usr/lib/jsvm/$lastJdk;" >> /spark/spark/conf/spark-env.sh;
+		lastJdk=$(ls /usr/lib/jvm/ | sort | tail -n1);
+		echo "export JAVA_HOME=/usr/lib/jvm/$lastJdk;" >> /spark/spark/conf/spark-env.sh;
 	fi
 	
-	[ -e spark/conf/slaves ] || rm  spark/conf/slaves
+	[ -e "spark/conf/slaves" ] || rm  spark/conf/slaves
 	index=0;
 	for node in "${nodes[@]}"; do
 		IFS=' ' read -r -a parts <<< $node
 		nodename=$(echo -e "${parts[1]}" | tr -d '[:space:]');
 		if [ ! $index -eq 0 ]; then
-			echo "$nodename" >> spark/conf/slaves;
+			if  ! grep -q "$nodename"  spark/conf/slaves ; then                
+				echo "$nodename" >> spark/conf/slaves;
+			fi
 		fi
 		let index=index+1 ;
 	done
