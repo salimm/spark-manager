@@ -1,17 +1,21 @@
 #!/bin/bash
 
+if ([ "$EUID" -ne 0 ]) then 
+	SUDO_CMD="sudo";
+fi
+	
 function install_req {
-	sudo apt-get install git -y;
-	sudo apt-add-repository ppa:webupd8team/java -y;
-	sudo apt-get update -y;
-	sudo apt-get install oracle-java8-installer -y;
-	sudo apt-get install oracle-java8-set-default ;
-	sudo apt-get install maven gradle -y;
-	sudo apt-get install sbt -y;
-	sudo apt-get install vim -y;
-	sudo apt-get install scala -y;
-	sudo apt-get install openssh-server openssh-client;
-	apt-get install python-software-properties;
+	$SUDO_CMD apt-get install git -y;
+	$SUDO_CMD apt-add-repository ppa:webupd8team/java -y;
+	$SUDO_CMD apt-get update -y;
+	$SUDO_CMD apt-get install oracle-java8-installer -y;
+	$SUDO_CMD apt-get install oracle-java8-set-default ;
+	$SUDO_CMD apt-get install maven gradle -y;
+	$SUDO_CMD apt-get install sbt -y;
+	$SUDO_CMD apt-get install vim -y;
+	$SUDO_CMD apt-get install scala -y;
+	$SUDO_CMD apt-get install openssh-server openssh-client;
+	$SUDO_CMD apt-get install python-software-properties;
 }
 
 
@@ -22,28 +26,42 @@ isInteger() {
 
 function setup() {
 	
-	#nodeType="$2";
-	#name="$3";
 	nodeIp="";
-	IFS=' ' read -r -a array <<< `ip addr show | grep -Po 'inet \K[\d.]+'`
-	numIp=${#array[@]}
-	SUDO_CMD="sudo";
+	IFS=' ' read -r -a iparray <<< `ip addr show | grep -Po 'inet \K[\d.]+'`	
+	SUDO_CMD="";
 	SPARK_DOWNLOAD_LINK="http://d3kbcqa49mib13.cloudfront.net/spark-2.1.0-bin-hadoop2.7.tgz";
 	SPARK_DIR="/spark"
 	current_user=$(whoami);
 	
-	if ([ "$EUID" -ne 0 ]) then 
-		SUDO_CMD="";
-	fi
-	
+
 	#read nodes
 	readarray nodes < nodes.txt
-	index=1;
-	for tip in "${array[@]}"; do
-		echo "$index) $tip";
+	index=0;
+	found=0;
+	for node in "${nodes[@]}"; do
+		IFS=' ' read -r -a parts <<< $node
+		nip=$(echo -e "${parts[0]}" | tr -d '[:space:]')
+		for tip in "${iparray[@]}"; do
+			if ( [ "$nip" =  "$tip" ] ) then
+				found=1;
+				break;
+			fi
+        done
+		if [ "$found" = "1" ]; then
+			nodeIp=$nip;
+			name=$(echo -e "${parts[1]}" | tr -d '[:space:]')
+			if [ "$index" = "0" ]; then
+				nodeType="master";
+			else
+				nodeType="slave";
+			fi
+			break;
+		fi
 		let index=index+1 ;
 	done
+
 	
+
 	 # set neo4j type and version
     while getopts "t:n" o; do
         case "$o" in
@@ -57,46 +75,23 @@ function setup() {
         esac
     done
 	
+	
 	#checking if name is set
 	if ( [[ -z  $name  ]] ||  [[  -z  $nodeType  ]] ) then
 		usage;
 		exit;
 	fi
-		
-	# getting the ip from input
-	while [ -z "$nodeIp" ]; do
-		echo "Choose ip address for node: ";
-		index=1
-		for tip in "${array[@]}"; do
-			echo "$index) $tip";
-			let index=index+1 ;
-        done
-		read ipIndex
-		#checking if option is in range
-		if ( isInteger $ipIndex && (( $ipIndex <= "${#array[@]}" )) && (( $ipIndex > 0 )) ) then			
-			nodeIp=$tip;
-			break;
-		fi
-		
-	done
-	
-	
+
 	echo "** setting up $nodeType on $name @ $nodeIp"
 	
 	# adding ip to /etc/hosts
-	if ([ "$a" = "master" ])then
-		if  ! grep -q "$nodeIp $type"  /etc/hosts ; then                
-			$SUDO_CMD echo "$nodeIp $type" >> /etc/hosts 
-		fi
-	else
-		if  ! grep -q "$nodeIp $name"  /etc/hosts ; then                
-			$SUDO_CMD echo "$nodeIp $name" >> /etc/hosts 
-		fi
-	fi
-				
 	
-	#creating user if not exist
+	if  ! grep -q "#spark nodes"  /etc/hosts ; then                
+		$SUDO_CMD echo "#spark nodes" >> /etc/hosts 
+		$SUDO_CMD cat nodes.txt >> /etc/hosts 
+	fi		
 	
+	#creating user if not exist	
 	id -u spark &>/dev/null || sudo useradd -d /home/spark -m spark
 	
 	
@@ -155,6 +150,16 @@ function setup() {
 		echo "export JAVA_HOME=/usr/lib/jsvm/$lastJdk;" >> /spark/spark/conf/spark-env.sh;
 	fi
 	
+	[ -e spark/conf/slaves ] || rm  spark/conf/slaves
+	index=0;
+	for node in "${nodes[@]}"; do
+		IFS=' ' read -r -a parts <<< $node
+		nodename=$(echo -e "${parts[1]}" | tr -d '[:space:]');
+		if [ ! $index -eq 0 ]; then
+			echo "$nodename" >> spark/conf/slaves;
+		fi
+		let index=index+1 ;
+	done
 	
 	cd $currentdir;
 	
@@ -163,11 +168,11 @@ function setup() {
 
 function usage (){
     read -r -d "" output << TXT
-Usage: neo4j-instance [command]
+Usage: spark-man [command]
 
 The commands are as follows:
  help                           outputs this document
- setup [option] <type> <name>             create a new database instance
+ setup [option]		            create a new database instance
  sharekey      					Shares ssh key with master
  start 		                    startS master/slave on this node
  stop 		                    stops this node
