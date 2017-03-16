@@ -25,6 +25,10 @@ isInteger() {
   return $flag;
 }
 
+function setupSingle(){
+
+}
+
 function setup() {
 	
 	nodeIp="";
@@ -33,11 +37,34 @@ function setup() {
 	SPARK_DOWNLOAD_LINK="http://d3kbcqa49mib13.cloudfront.net/spark-2.1.0-bin-hadoop2.7.tgz";
 	SPARK_DIR="/spark"
 	current_user=$(whoami);
-	pass="test123456"	
+	pass="test123456"
+	nodesFile="nodes.txt"
+	uname="spark"
 	
+	OPTIND=2;
+
+	 # set params
+    while getopts "pl:d:n:cu:" o; do
+		case "$o" in
+            p)  read -s pass;
+                ;;
+			l) SPARK_DOWNLOAD_LINK="$OPTARG";
+                ;;
+			d) SPARK_DIR="$OPTARG";
+                ;;
+			n) nodesFile="$OPTARG";
+                ;;
+			c) install_req;
+                ;;
+			u) uname="$OPTARG";
+                ;;
+            *) usage;
+                ;;
+        esac
+    done
 
 	#read nodes
-	readarray nodes < nodes.txt
+	readarray nodes < nodesFile
 	index=0;
 	found=0;
 	for node in "${nodes[@]}"; do
@@ -62,17 +89,7 @@ function setup() {
 		let index=index+1 ;
 	done
 
-	OPTIND=2;
-
-	 # set params
-    while getopts "p" o; do
-		case "$o" in
-            p)  read -s pass;
-                ;;
-            *) usage;
-                ;;
-        esac
-    done
+	
 		
 
 	#checking if name is set
@@ -87,7 +104,7 @@ function setup() {
 	
 	if  ! grep -q "#spark nodes"  /etc/hosts ; then                
 		$SUDO_CMD echo "#spark nodes" >> /etc/hosts 
-		$SUDO_CMD cat nodes.txt >> /etc/hosts 
+		$SUDO_CMD cat nodesFile >> /etc/hosts 
 	fi		
 	
 	#creating user if not exist	
@@ -97,7 +114,7 @@ function setup() {
 	if  [ ! -e "$SPARK_DIR" ] ;  then
 		$SUDO_CMD mkdir $SPARK_DIR
 	fi		
-	
+	 
 	#givving access to sparl user
 	$SUDO_CMD chown -R spark $SPARK_DIR
 	$SUDO_CMD chmod -R +rwx $SPARK_DIR
@@ -187,19 +204,38 @@ function usage (){
 Usage: spark-man [command]
 
 The commands are as follows:
- help                           outputs this document
- setup [option]		            create a new database instance
- sharekey      					Shares ssh key with master
- start 		                    startS master/slave on this node
- stop 		                    stops this node
- list                           lists the nodes in cluster                                
+ help                           		  Outputs this document
+ install_req							  installs the required packages both for Spark and the script
+ setup <setup-type> [option]		      Setup spark on one/multiple nodes. Setup-type can be either single or cluster. The setup creates a new user spark if it doesn't exist. It also requires sudo access
+	-p) 								  This argument prompts user for a password for the new spark accounts in all nodes. If not specified the script will use a hard coded password which can be changed later by user
+	-u)	<username>						  User can pass username to access node as argument. Otherwise, the default is to use spark	
+	-n) <nodes file address>	     	  This arguments allows user to pass address of the nodes.txt file
+	-c)									  If used the script will also run install_req for all nodes
+	-l)	<spark-download-link>			  This argument allows user to pass the link to download spark, otherwise, it will use a hard coded link					  
+	-d)	<spark setup directory>			  This argument allows user to pass spark setup rdirectory. If not used  the default (/spark) will be sued
+ addslave <slave-name>				      Adds a new slave to the cluster. Sould be used on master. If -s or -i are not used it will simply change configurations
+	-s)									  Runs setup for the client node first (requires the password to exist in nodes.txt file)
+	-c)									  If used the script will also run install_req for all nodes	
+	-i)	<ip>							  If no nodes.txt exists , or node is not in nodes.txt with the specified name the user must pass ip address
+	-u)	<username>						  User can pass username to access node as argument. Otherwise, the default is to use spark
+	-p)									  User will promt for password, otherwise will look for password in nodes.txt file 
+	-n) <file address>					  User can pass address for the nodes.txt file.  Otherwise, it will assume to be in the same directory as the script and named "nodes.txt"
+	-d)	<spark setup directory>			  This argument allows user to pass spark setup rdirectory. If not used  the default (/spark) will be sued	
+ remslave	<slave-name>			      This works by only re-configuring the spark settings
+	
+	
 TXT
     echo "$output";
     exit 1;
 }
 
 
-function handleSlave(){
+function addSlave(){
+   echo "test";
+   return 0;
+}
+
+function remSlave(){
    echo "test";
    return 0;
 }
@@ -213,10 +249,16 @@ function displayList (){
 
 case "$1" in
 	install_req)
-		install_req;
+			install_req;
 		;;
 	setup)
-		setup "${@}";
+			setup "${@}";
+		;;
+	addSlave)
+			addSlave "${@}";
+		;;
+	remSlave)
+			remSlave "${@}";
 		;;
 		
 	list)
