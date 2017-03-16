@@ -1,2 +1,2 @@
-159.203.170.20 master salmalkk
-159.203.170.29 spark1 salmalkk
+159.203.170.20 master password
+159.203.170.29 spark1 password
